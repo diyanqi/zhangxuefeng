@@ -53,7 +53,8 @@ export function tplChecks(list, showAll) {
     <div class="d-flex gap-2 align-items-start">
       <span class="dot mt-1 ${dotBg(c.status)}"></span>
       <div><strong class="small">${esc(c.name)}</strong> <small class="text-muted">${esc(c.detail || "")}</small>
-      ${c.hint ? `<div class="alert alert-warning py-1 px-2 small mb-0 mt-1">-> ${esc(c.hint)}</div>` : ""}</div>
+      ${c.hint ? `<div class="alert alert-warning py-1 px-2 small mb-0 mt-1">-> ${esc(c.hint)}</div>` : ""}
+      ${c.id === "deps" && c.status !== "pass" ? `<div class="mt-1"><button class="btn btn-primary btn-sm" onclick="installDeps()">一键安装依赖</button></div>` : ""}</div>
     </div></div>`).join("")
     + (showAll ? "" : `<div class="small text-muted mt-1">另有 ${pass} 项已通过，已收起 · <a href="#" onclick="toggleShowAll(event)">展开</a></div>`);
 }

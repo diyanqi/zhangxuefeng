@@ -7,12 +7,14 @@ PORT="${PORT:-8123}"
 NO_BROWSER="${NO_BROWSER:-}"
 SKIP_INSTALL="${SKIP_INSTALL:-0}"
 REINSTALL="${REINSTALL:-0}"
+SETUP_ONLY="${SETUP_ONLY:-0}"
 KILL_ONLY="${KILL:-0}"
 FORCE_RESTART="${FORCE:-0}"
 
 usage() {
-  echo "用法: ./start-ui.sh [--port 8123] [--no-browser] [--reinstall] [--skip-install] [--kill] [--force]"
-  echo "  环境变量同样有效: PORT / NO_BROWSER=1 / SKIP_INSTALL=1 / REINSTALL=1 / KILL=1 / FORCE=1"
+  echo "用法: ./start-ui.sh [--port 8123] [--no-browser] [--reinstall] [--skip-install] [--setup] [--kill] [--force]"
+  echo "  环境变量同样有效: PORT / NO_BROWSER=1 / SKIP_INSTALL=1 / REINSTALL=1 / SETUP_ONLY=1 / KILL=1 / FORCE=1"
+  echo "  --setup: 只建 .venv 并装依赖, 不启动 (一键装依赖)"
   echo "  --kill: 检测端口占用, 若是同类服务 (上次 WebUI 没退) 则一键 kill 后退出"
   echo "  --force: 一键 kill 同类服务后继续启动 (非同类占用则拒绝, 请换端口)"
 }
@@ -23,6 +25,7 @@ while [ $# -gt 0 ]; do
     --no-browser) NO_BROWSER=1; shift ;;
     --reinstall) REINSTALL=1; shift ;;
     --skip-install) SKIP_INSTALL=1; shift ;;
+    --setup) SETUP_ONLY=1; shift ;;
     --kill) KILL_ONLY=1; shift ;;
     --force|-f) FORCE_RESTART=1; shift ;;
     -h|--help) usage; exit 0 ;;
@@ -43,22 +46,30 @@ if [ "$SKIP_INSTALL" = "1" ]; then
   echo "[start-ui] 跳过依赖安装 (SKIP_INSTALL=1)"
 elif [ "$REINSTALL" = "1" ]; then
   need_install=1
-elif ! "$VENV_PY" -c "import pymobiledevice3, yaml, geopy, qh3" 2>/dev/null; then
+elif ! "$VENV_PY" -c "import pymobiledevice3, yaml, geopy, coloredlogs, qh3" 2>/dev/null; then
   need_install=1
 fi
 if [ "$need_install" = "1" ]; then
-  if [ "$(uname)" = "Darwin" ] && [ -d /opt/homebrew/opt/openssl@3 ]; then
-    export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"
-    export CPPFLAGS="-I/opt/homebrew/opt/openssl@3/include"
-    export PKG_CONFIG_PATH="/opt/homebrew/opt/openssl@3/lib/pkgconfig"
-  fi
+  for _ossl in /opt/homebrew/opt/openssl@3 /usr/local/opt/openssl@3; do
+    if [ -d "$_ossl" ]; then
+      export LDFLAGS="-L$_ossl/lib"
+      export CPPFLAGS="-I$_ossl/include"
+      export PKG_CONFIG_PATH="$_ossl/lib/pkgconfig"
+      break
+    fi
+  done
   echo "[start-ui] 装依赖 (pip install -r requirements.txt) ..."
   if ! "$ROOT/.venv/bin/pip" install -r requirements.txt; then
-    echo "[start-ui] 依赖安装失败, 见上. Mac 报 openssl/ssl.h 缺失先看 README 第 2 节." >&2
+    echo "[start-ui] 依赖安装失败, 见上. Mac 报 openssl/ssl.h 缺失先 brew install openssl@3 (见 README 第 2 节)." >&2
     exit 1
   fi
 else
   echo "[start-ui] 依赖已就绪, 跳过安装 (--reinstall 可强制重装)"
+fi
+
+if [ "$SETUP_ONLY" = "1" ]; then
+  echo "[start-ui] 依赖就绪 (venv: .venv). 启动: ./start-ui.sh"
+  exit 0
 fi
 
 port_in_use() {

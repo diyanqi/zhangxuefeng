@@ -12,9 +12,19 @@
 4. 同一时间只能连一台设备。
 5. 设备用数据线直连电脑，解锁，弹出"信任此电脑"时点信任。
 
-## 2. 安装
+## 2. 安装（一键）
 
-进入项目目录后：
+进入项目目录后，一键装依赖（建 `.venv` + `pip install`，不启动，不连设备，不要 root）：
+
+```shell
+./start-ui.sh --setup
+```
+
+```powershell
+.\start-ui.ps1 -Setup   # Windows
+```
+
+依赖已就绪时会直接跳过；想强制重装用 `--reinstall` / `-Reinstall`。手动装（备用）：
 
 ```shell
 python3 -m venv .venv
@@ -22,7 +32,8 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Mac 上如果装到 `sslpsk-pmd3` 时报错 `openssl/ssl.h file not found`：
+Mac 上如果手动装到 `sslpsk-pmd3` 时报错 `openssl/ssl.h file not found`，先 `brew install openssl@3`
+（一键脚本已自动处理 Apple Silicon / Intel 两条路径，手动装才需 export）：
 
 ```shell
 export LDFLAGS="-L/opt/homebrew/opt/openssl@3/lib"

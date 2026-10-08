@@ -28,8 +28,9 @@
 
 ## 运行
 
-- `./start-ui.sh [--port N] [--kill] [--force] [--no-browser]`：建 venv → 装依赖 →
+- `./start-ui.sh [--port N] [--setup] [--kill] [--force] [--no-browser]`：建 venv → 装依赖 →
   sudo 提权验证 → 端口预检 → **前台**跑 WebUI（Ctrl+C 直达服务做清理）。
+  `--setup` 只装依赖不启动；WebUI 健康检查里依赖失败也有「一键安装依赖」按钮（`POST /api/deps/install`）。
   不要改回 `sudo … &` 后台模式：后台任务默认忽略 SIGINT，会留下退不出的 root 孤儿。
 - 管理员/root 是硬性要求（建 tun 隧道），必须用 `.venv` 里的 python。
 - 停止语义：`SIGINT` = 优雅退出（清虚拟定位），`terminate`/`kill -9`不清定位。

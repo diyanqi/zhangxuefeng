@@ -5,6 +5,7 @@ param(
   [switch]$NoBrowser,
   [switch]$Reinstall,
   [switch]$SkipInstall,
+  [switch]$Setup,
   [switch]$Kill,
   [switch]$Force
 )
@@ -25,6 +26,7 @@ if (-not $isAdmin) {
   if ($NoBrowser) { $args += " -NoBrowser" }
   if ($Reinstall) { $args += " -Reinstall" }
   if ($SkipInstall) { $args += " -SkipInstall" }
+  if ($Setup) { $args += " -Setup" }
   if ($Kill) { $args += " -Kill" }
   if ($Force) { $args += " -Force" }
   Start-Process powershell -ArgumentList $args -Verb RunAs
@@ -44,7 +46,7 @@ if ($SkipInstall) {
 } elseif ($Reinstall) {
   $needInstall = $true
 } else {
-  & $VenvPy -c "import pymobiledevice3, yaml, geopy, qh3" 2>$null
+  & $VenvPy -c "import pymobiledevice3, yaml, geopy, coloredlogs, qh3" 2>$null
   if ($LASTEXITCODE -ne 0) { $needInstall = $true }
 }
 if ($needInstall) {
@@ -53,6 +55,10 @@ if ($needInstall) {
   if ($LASTEXITCODE -ne 0) { Fail "依赖安装失败. 先装 iTunes (Apple 官方版, 非微软商店版) 并打开过一次." }
 } else {
   Write-Host "[start-ui] 依赖已就绪, 跳过安装 (-Reinstall 可强制重装)"
+}
+if ($Setup) {
+  Write-Host "[start-ui] 依赖就绪 (venv: .venv). 启动: .\start-ui.ps1 (管理员 PowerShell)"
+  exit 0
 }
 
 function Get-PortReport($p) {

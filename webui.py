@@ -177,6 +177,38 @@ def write_route_file(name, loc):
         f.write(body)
 
 
+BACKUP_DIR = os.path.join(ROOT, "backups")
+BACKUP_KEEP = 10
+
+
+def _fix_owner(path):
+    # root 启动时文件属 root, 尽量还给 sudo 用户, 免得删不动
+    try:
+        os.chmod(path, 0o644)
+        uid = gid = None
+        try:
+            uid = int(os.environ.get("SUDO_UID", ""))
+            gid = int(os.environ.get("SUDO_GID", ""))
+        except ValueError:
+            uid = gid = None
+        if uid is not None:
+            os.chown(path, uid, gid if gid is not None else -1)
+    except OSError:
+        pass
+
+
+def _prune_backups(name, keep=BACKUP_KEEP):
+    try:
+        files = sorted(f for f in os.listdir(BACKUP_DIR) if f.startswith(name + ".bak-"))
+    except OSError:
+        return
+    for f in files[:-keep] if len(files) > keep else []:
+        try:
+            os.remove(os.path.join(BACKUP_DIR, f))
+        except OSError:
+            pass
+
+
 def optimize_route_file(name, spacing_m=5.0, fit=True, fit_samples=8):
     from run import fit_closed_curve
     loc = read_route_file(name)
@@ -185,16 +217,21 @@ def optimize_route_file(name, spacing_m=5.0, fit=True, fit_samples=8):
     before = spacing_stats(loc)
     pts = fit_closed_curve(loc, samples_per_segment=max(1, int(fit_samples))) if fit else loc
     pts = even_resample(pts, float(spacing_m))
+    os.makedirs(BACKUP_DIR, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+    bak = os.path.join(BACKUP_DIR, name + ".bak-" + ts)
     full = os.path.join(ROOT, name)
-    bak = full + ".bak-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     os.replace(full, bak)
+    _fix_owner(bak)
     try:
         write_route_file(name, pts)
         read_route_file(name)
     except Exception:
         os.replace(bak, full)
         raise
-    return {"before": before, "after": spacing_stats(pts), "backup": os.path.basename(bak)}
+    _prune_backups(name)
+    return {"before": before, "after": spacing_stats(pts),
+            "backup": os.path.relpath(bak, ROOT)}
 
 
 def check_root():
@@ -243,11 +280,76 @@ def check_deps():
     if bad:
         return {"id": "deps", "name": "依赖", "status": "fail",
                 "detail": "; ".join(bad),
-                "hint": ".venv 下 pip install -r requirements.txt; "
-                        "Mac 报 openssl/ssl.h 缺失先 export OpenSSL 路径 (见 README); "
+                "hint": "点本行「一键安装依赖」; 或 .venv 下 pip install -r requirements.txt; "
+                        "Mac 报 openssl/ssl.h 缺失先装 openssl@3 (见 README 第 2 节); "
                         "qh3 不要升到 2.x"}
     return {"id": "deps", "name": "依赖", "status": "pass",
             "detail": ", ".join(vers), "hint": ""}
+
+
+DEPS_LOCK = threading.Lock()
+
+
+def _openssl_env():
+    env = dict(os.environ)
+    for base in ("/opt/homebrew/opt/openssl@3", "/usr/local/opt/openssl@3"):
+        if os.path.isdir(os.path.join(base, "include")):
+            env.setdefault("LDFLAGS", "-L%s/lib" % base)
+            env.setdefault("CPPFLAGS", "-I%s/include" % base)
+            env.setdefault("PKG_CONFIG_PATH", "%s/lib/pkgconfig" % base)
+            break
+    return env
+
+
+def _fix_venv_owner():
+    # sudo 起的 WebUI 装依赖会留下 root 文件, 还给 sudo 用户
+    if os.name == "nt":
+        return
+    try:
+        if os.geteuid() != 0:
+            return
+        uid = int(os.environ.get("SUDO_UID", ""))
+    except (AttributeError, ValueError):
+        return
+    try:
+        gid = int(os.environ.get("SUDO_GID", ""))
+    except ValueError:
+        gid = -1
+    try:
+        subprocess.run(["chown", "-R", "%d:%d" % (uid, gid),
+                        os.path.join(ROOT, ".venv")],
+                       timeout=120, capture_output=True)
+    except Exception:
+        pass
+
+
+def install_deps(timeout=420):
+    if not DEPS_LOCK.acquire(blocking=False):
+        return False, "依赖正在安装中, 稍等半分钟再点刷新看结果"
+    try:
+        req = os.path.join(ROOT, "requirements.txt")
+        p = subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-r", req],
+            capture_output=True, text=True, timeout=timeout,
+            env=_openssl_env(), cwd=ROOT)
+        blob = (p.stdout or "") + "\n" + (p.stderr or "")
+        tail = "; ".join(blob.strip().splitlines()[-3:])
+        if p.returncode != 0:
+            hint = ""
+            if "openssl/ssl.h" in blob:
+                hint = " ➜ Mac 缺 OpenSSL 头文件: brew install openssl@3 后重试 (见 README 第 2 节)"
+            elif "qh3" in tail:
+                hint = " ➜ qh3 固定 1.9.4, 别升 2.x"
+            return False, "依赖安装失败: %s%s" % (tail[:500], hint)
+        _fix_venv_owner()
+        return True, "依赖安装成功, 点刷新重新检查"
+    except subprocess.TimeoutExpired:
+        return False, "pip 安装超时, 网络慢时重试, 或手动 .venv 下 pip install"
+    finally:
+        try:
+            DEPS_LOCK.release()
+        except RuntimeError:
+            pass
 
 
 def check_devices():
@@ -266,11 +368,11 @@ def check_devices():
     if n > 1:
         return {"id": "device", "name": "设备连接", "status": "warn",
                 "detail": f"发现 {n} 台: " + ", ".join(
-                    f"{d.serial}({d.connection_type})" for d in devs),
+                    f"{d.serial} {str(d.connection_type).upper()}" for d in devs),
                 "hint": "同一时间只能连一台, 多台会出问题, 先拔掉多余的"}
     d = devs[0]
     return {"id": "device", "name": "设备连接", "status": "pass",
-            "detail": f"{d.serial} ({d.connection_type})", "hint": ""}
+            "detail": f"{d.serial} {str(d.connection_type).upper()}", "hint": ""}
 
 
 def device_info_from_values(vals):
@@ -307,7 +409,7 @@ def query_device():
         if len(devs) == 1:
             d = devs[0]
             info["serial"] = getattr(d, "serial", "") or ""
-            info["connection"] = str(getattr(d, "connection_type", "") or "")
+            info["connection"] = str(getattr(d, "connection_type", "") or "").upper()
         elif len(devs) > 1:
             info["connection"] = f"{len(devs)} 台设备"
     except Exception:
@@ -906,6 +1008,12 @@ class Handler(BaseHTTPRequestHandler):
                 res = _ports.kill_pids(pids)
                 self._json({"ok": True, "msg": f"已处理端口 {port} 的同类进程: {res}",
                             "result": res, "check": st})
+            except Exception as e:
+                self._json({"ok": False, "msg": str(e)}, 500)
+        elif p.path == "/api/deps/install":
+            try:
+                ok, msg = install_deps()
+                self._json({"ok": ok, "msg": msg}, 200 if ok else 500)
             except Exception as e:
                 self._json({"ok": False, "msg": str(e)}, 500)
         elif p.path == "/api/routes/select":

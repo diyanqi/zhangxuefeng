@@ -236,6 +236,14 @@ async function optimizeRoute() {
 }
 
 
+async function installDeps() {
+  toast("依赖安装中…约 1~3 分钟，请勿重复点击");
+  const r = await jpost("/api/deps/install", {});
+  toast(r.msg || r.error);
+  refreshStatus(true);
+}
+
+
 async function loadPreview() {
   if (MODE !== "run") return;
   try {
@@ -270,7 +278,7 @@ initMap({
 Object.assign(window, {
   setMode, refreshStatus, toggleShowAll, pollLog, clearLog,
   runStart, runStop, portCheck, portKill, pinSet, pinClear,
-  loadCfg, saveCfg, loadRoutes, selectRoute, createRoute, optimizeRoute,
+  loadCfg, saveCfg, loadRoutes, selectRoute, createRoute, optimizeRoute, installDeps,
   loadPreview, refreshAll,
 });
 
