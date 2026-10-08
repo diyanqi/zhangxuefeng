@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>张雪峰 · 在浙大，练起来！</title>
+<link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/static/bootstrap.min.css">
+<link rel="stylesheet" href="/static/leaflet.css">
+<style>
+body{background:#f4f6fa;}
+.card-header{min-height:52px;padding-top:.5rem;padding-bottom:.5rem}
+.navbar .badge{font-size:.875rem!important;padding:.25rem .5rem;line-height:1.5;border-radius:.2rem}
+#modeTabs .btn{line-height:1.5}
+.navbar-brand .logo{width:34px;height:34px;border-radius:10px;background:linear-gradient(145deg,#1f2937,#030712);color:#fff;display:inline-grid;place-items:center;flex:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.15),0 4px 10px rgba(0,0,0,.25)}
+.status-dot{width:8px;height:8px;border-radius:50%;background:#cbd5e1;display:inline-block}
+.status-dot.on{background:#16a34a;animation:pulse 1.6s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 #16a34a55}70%{box-shadow:0 0 0 6px transparent}100%{box-shadow:0 0 0 0 transparent}}
+#map{height:400px;border-radius:.5rem;z-index:0}
+#map_fallback{height:400px;width:100%;border-radius:.5rem;background:#f8fafc}
+#log{height:280px;overflow-y:auto;white-space:pre-wrap;font-size:12px;line-height:1.65;background:#0b1220;color:#a7f3d0;border-radius:.5rem;padding:12px 14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+#log:empty::after{content:"暂无日志 — 启动后这里会实时输出…";color:#475569}
+.mono{font-family:ui-monospace,Menlo,monospace}
+.toast-float{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(16px);background:#111827;color:#fff;font-size:13px;padding:10px 18px;border-radius:.6rem;box-shadow:0 12px 30px rgba(0,0,0,.25);opacity:0;transition:all .25s;z-index:1050;max-width:88vw}
+.toast-float.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+.skel{background:linear-gradient(90deg,#eef1f6 25%,#e2e8f0 50%,#eef1f6 75%);background-size:200% 100%;animation:sh 1.2s infinite;border-radius:.5rem;color:transparent!important}
+@keyframes sh{to{background-position:-200% 0}}
+@media(max-width:576px){#map,#map_fallback{height:300px}}
+</style></head><body>
+<nav class="navbar navbar-light bg-white border-bottom sticky-top">
+  <div class="container-lg d-flex align-items-center gap-2 py-2">
+    <a class="navbar-brand d-flex align-items-center gap-2 m-0" href="#">
+      <span class="logo">
+        <svg viewBox="0 0 48 48" width="22" height="22" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-label="跑步机">
+          <line x1="9" y1="36" x2="32" y2="36" stroke="currentColor" stroke-width="3.6"/>
+          <line x1="28.5" y1="36" x2="35.5" y2="14" stroke="currentColor" stroke-width="3.6"/>
+          <line x1="35.5" y1="14" x2="24" y2="17" stroke="currentColor" stroke-width="3"/>
+          <rect x="31" y="6.5" width="10" height="6" rx="2" stroke="currentColor" stroke-width="2.8"/>
+          <line x1="33.8" y1="9.5" x2="38.2" y2="9.5" stroke="#34d399" stroke-width="2"/>
+        </svg>
+      </span>
+      <span class="lh-1">
+        <strong class="d-block" style="font-size:17px">张雪峰</strong>
+        <small class="text-muted" style="font-size:12px">在浙大，练起来！</small>
+      </span>
+    </a>
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <span class="badge bg-light text-dark border d-inline-flex align-items-center gap-2 fw-normal" style="font-size:12.5px">
+        <span class="status-dot" id="runDot"></span><span id="runstateTxt">连接中…</span>
+      </span>
+      <button class="btn btn-outline-secondary btn-sm" onclick="refreshAll(true)">刷新</button>
+    </div>
+  </div>
+</nav>
+
+<main class="container-lg py-3">
+  <div class="alert alert-warning py-2 small mb-3">停止请点 <strong>停止</strong>（自动清除虚拟定位），不要直接关窗口 / kill。跑起来像“飞”多半是路线里混进了很远的点。</div>
+
+  <div class="row g-3 align-items-start">
+
+    <div class="col-lg-4 d-flex flex-column gap-3">
+      <div class="card">
+        <div class="card-header bg-white d-flex align-items-center">
+          <strong>设备概览</strong><span class="badge bg-success-subtle text-success border ms-2 fw-normal">LIVE</span>
+        </div>
+        <div class="card-body" id="deviceBody"><div class="skel" style="height:90px"></div></div>
+        <div class="card-footer bg-white d-flex align-items-center gap-2">
+          <small class="text-muted" id="updAt">等待首次同步…</small>
+          <div class="form-check form-switch ms-auto d-flex align-items-center gap-1 m-0">
+            <input class="form-check-input" type="checkbox" id="autoRef" checked>
+            <label class="form-check-label text-muted" for="autoRef" style="font-size:12px">自动刷新</label>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header bg-white d-flex align-items-center">
+          <strong>健康检查</strong>
+          <span class="badge bg-secondary ms-auto fw-normal" id="healthChip">…</span>
+        </div>
+        <div class="card-body">
+          <div class="d-flex align-items-center gap-2 mb-2">
+            <div class="progress flex-grow-1" style="height:8px"><div class="progress-bar bg-success" id="healthBar" style="width:0%"></div></div>
+          </div>
+          <div class="d-flex mb-2">
+            <small class="text-muted" id="healthTitle">启动就绪度</small>
+            <a href="#" id="toggleChecks" class="ms-auto small text-decoration-none" onclick="toggleShowAll(event)">展开全部</a>
+          </div>
+          <div class="list-group list-group-flush" id="checks"><div class="skel" style="height:110px"></div></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header bg-white"><strong>端口占用</strong></div>
+        <div class="card-body">
+          <div class="row g-2 align-items-center">
+            <div class="col-4"><input id="p_port" class="form-control form-control-sm mono" placeholder="8123"></div>
+            <div class="col-4 d-grid"><button class="btn btn-outline-secondary btn-sm" onclick="portCheck()">检测</button></div>
+            <div class="col-4 d-grid"><button class="btn btn-outline-danger btn-sm" onclick="portKill()">一键 kill</button></div>
+          </div>
+          <small class="text-muted d-block mt-2" id="portmsg">只杀同类服务（本项目 WebUI）。</small>
+        </div>
+      </div>
+    </div>
+
+
+    <div class="col-lg-8 d-flex flex-column gap-3">
+      <div class="card">
+        <div class="card-header bg-white d-flex align-items-center gap-2 flex-wrap">
+          <div class="btn-group" role="group" aria-label="模式切换" id="modeTabs">
+            <button class="btn btn-sm btn-dark" id="tabRun" onclick="setMode('run')">跑步模式</button>
+            <button class="btn btn-sm btn-outline-secondary" id="tabPin" onclick="setMode('pin')">自由选点</button>
+          </div>
+          <small class="text-muted ms-auto" id="modeHint">沿路线按配速跑</small>
+        </div>
+        <div class="card-body">
+          <div id="map"></div>
+          <canvas id="map_fallback" style="display:none"></canvas>
+
+
+          <div id="paneRun" class="mt-3">
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+              <strong id="routeTitle">路线预览</strong>
+              <span class="badge bg-light text-dark border fw-normal" id="runStateBadge">未运行</span>
+              <div class="ms-auto d-flex gap-2">
+                <button id="btnStart" class="btn btn-success btn-sm" onclick="runStart()">启动</button>
+                <button id="btnStop" class="btn btn-outline-danger btn-sm" onclick="runStop()">停止</button>
+              </div>
+            </div>
+            <div class="d-flex gap-2 flex-wrap mb-2" id="routes"><span class="badge bg-light text-dark border fw-normal">加载中…</span></div>
+            <div class="row g-2 text-center" id="previewStats"></div>
+            <div class="row g-2 align-items-end mt-2">
+              <div class="col-4 col-md-3">
+                <label class="form-label small text-muted mb-1">均匀间距（米）</label>
+                <input id="o_spacing" value="5" class="form-control form-control-sm mono">
+              </div>
+              <div class="col-8 col-md-9 d-flex align-items-center gap-2 flex-wrap">
+                <button class="btn btn-outline-warning btn-sm" onclick="optimizeRoute()">一键均匀化</button>
+                <small class="text-muted" id="optimsg"></small>
+              </div>
+            </div>
+            <details class="mt-2"><summary class="small">新建路线（粘贴百度 BD-09 取点）</summary>
+              <div class="row g-2 mt-2">
+                <div class="col-md-3"><input id="n_file" class="form-control form-control-sm mono" placeholder="park.json"></div>
+                <div class="col-md-9"><input id="n_content" class="form-control form-control-sm mono" placeholder='{"lng":"120.08","lat":"30.31"},{"lng":…}'></div>
+              </div>
+              <div class="d-flex align-items-center gap-2 mt-2">
+                <button class="btn btn-primary btn-sm" onclick="createRoute()">保存并设为当前路线</button>
+                <small class="text-muted" id="routemsg"></small>
+              </div>
+            </details>
+          </div>
+
+
+          <div id="panePin" class="mt-3 d-none">
+            <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
+              <strong>定点定位</strong>
+              <span class="badge bg-light text-dark border fw-normal" id="pinStateBadge">未定点</span>
+              <small class="text-muted ms-auto">在地图上点一下，再设为手机定位</small>
+            </div>
+            <div class="row g-2 align-items-end">
+              <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1">纬度 lat</label>
+                <input id="pinLat" class="form-control form-control-sm mono" placeholder="30.304123">
+              </div>
+              <div class="col-6 col-md-3">
+                <label class="form-label small text-muted mb-1">经度 lng</label>
+                <input id="pinLng" class="form-control form-control-sm mono" placeholder="120.085456">
+              </div>
+              <div class="col-12 col-md-6 d-flex gap-2">
+                <button id="btnPinSet" class="btn btn-primary btn-sm flex-grow-1" onclick="pinSet()">设为手机定位</button>
+                <button id="btnPinClear" class="btn btn-outline-danger btn-sm flex-grow-1" onclick="pinClear()">清除定位</button>
+              </div>
+            </div>
+            <small class="text-muted d-block mt-2" id="pinMsg">地图坐标系 WGS-84，与手机一致，无需转换。跑步与定点同一时间只能开一个。</small>
+          </div>
+        </div>
+      </div>
+
+      <div class="card" id="cfgCard">
+        <div class="card-header bg-white"><strong>仿真参数</strong><small class="text-muted ms-2">配速决定速度</small></div>
+        <div class="card-body">
+          <div class="row g-2">
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">pace 配速（分/km）</label><input id="c_pace" class="form-control form-control-sm mono" placeholder="4:25"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">dt（秒/点）</label><input id="c_dt" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">fit_curve</label><input id="c_fit_curve" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">fit_samples</label><input id="c_fit_samples" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">wander_m（左右 米）</label><input id="c_wander_m" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">wander_step_m（起伏 米）</label><input id="c_wander_step_m" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">wander_step_hz（步频 Hz）</label><input id="c_wander_step_hz" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">pace_var_s（圈内 秒）</label><input id="c_pace_var_s" class="form-control form-control-sm mono"></div>
+            <div class="col-6 col-md-4"><label class="form-label small text-muted mb-1">lap_jitter_s（圈间 秒）</label><input id="c_lap_jitter_s" class="form-control form-control-sm mono"></div>
+          </div>
+          <div class="d-flex gap-2 mt-3">
+            <button class="btn btn-primary btn-sm" onclick="saveCfg()">保存配置</button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="loadCfg()">重载</button>
+            <small class="text-muted align-self-center" id="cfgmsg"></small>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header bg-white d-flex align-items-center">
+          <strong>运行日志</strong>
+          <span class="badge bg-light text-dark border ms-2 fw-normal" id="logCount">0 行</span>
+          <button class="btn btn-outline-secondary btn-sm ms-auto" onclick="clearLog()">清空显示</button>
+        </div>
+        <div class="card-body"><div id="log"></div></div>
+      </div>
+    </div>
+  </div>
+</main>
+<div class="toast-float" id="toast"></div>
+<script src="/static/bootstrap.bundle.min.js"></script>
+<script src="/static/leaflet.js"></script>
+<script type="module" src="/static/js/app.js"></script>
+</body></html>

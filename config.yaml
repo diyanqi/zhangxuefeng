@@ -1,0 +1,10 @@
+pace: '4:25'
+routeConfig: zjg.json
+dt: 0.01
+fit_curve: true
+fit_samples: 8
+wander_m: 1
+wander_step_m: 0.25
+wander_step_hz: 1.8
+lap_jitter_s: 15
+pace_var_s: 10
